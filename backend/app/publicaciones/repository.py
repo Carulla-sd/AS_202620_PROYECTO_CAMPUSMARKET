@@ -3,6 +3,13 @@ import sqlite3
 from pathlib import Path
 
 
+SQLITE_TIMEOUT_SECONDS = 0.5
+
+
+class PersistenceUnavailableError(RuntimeError):
+    """La persistencia no está disponible temporalmente."""
+
+
 def _db_path() -> Path:
     configured = os.getenv("CAMPUSMARKET_DB_PATH")
 
@@ -16,10 +23,30 @@ def _connect() -> sqlite3.Connection:
     path = _db_path()
     path.parent.mkdir(parents=True, exist_ok=True)
 
-    connection = sqlite3.connect(path)
+    connection = sqlite3.connect(
+        path,
+        timeout=SQLITE_TIMEOUT_SECONDS,
+    )
     connection.row_factory = sqlite3.Row
 
     return connection
+
+
+def _is_database_locked(error: sqlite3.OperationalError) -> bool:
+    error_code = getattr(error, "sqlite_errorcode", None)
+
+    if error_code in {
+        sqlite3.SQLITE_BUSY,
+        sqlite3.SQLITE_LOCKED,
+    }:
+        return True
+
+    message = str(error).lower()
+
+    return (
+        "database is locked" in message
+        or "database table is locked" in message
+    )
 
 
 def initialize_database() -> None:
@@ -47,45 +74,54 @@ def initialize_database() -> None:
 
 
 def create_publication(data: dict) -> dict:
-    initialize_database()
+    try:
+        initialize_database()
 
-    with _connect() as connection:
-        cursor = connection.execute(
-            """
-            INSERT INTO publicaciones (
-                titulo,
-                descripcion,
-                precio,
-                modalidad,
-                estado
+        with _connect() as connection:
+            cursor = connection.execute(
+                """
+                INSERT INTO publicaciones (
+                    titulo,
+                    descripcion,
+                    precio,
+                    modalidad,
+                    estado
+                )
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    data["titulo"],
+                    data["descripcion"],
+                    data["precio"],
+                    data["modalidad"],
+                    data["estado"],
+                ),
             )
-            VALUES (?, ?, ?, ?, ?)
-            """,
-            (
-                data["titulo"],
-                data["descripcion"],
-                data["precio"],
-                data["modalidad"],
-                data["estado"],
-            ),
-        )
 
-        publication_id = cursor.lastrowid
+            publication_id = cursor.lastrowid
 
-        row = connection.execute(
-            """
-            SELECT
-                id,
-                titulo,
-                descripcion,
-                precio,
-                modalidad,
-                estado
-            FROM publicaciones
-            WHERE id = ?
-            """,
-            (publication_id,),
-        ).fetchone()
+            row = connection.execute(
+                """
+                SELECT
+                    id,
+                    titulo,
+                    descripcion,
+                    precio,
+                    modalidad,
+                    estado
+                FROM publicaciones
+                WHERE id = ?
+                """,
+                (publication_id,),
+            ).fetchone()
+
+    except sqlite3.OperationalError as error:
+        if _is_database_locked(error):
+            raise PersistenceUnavailableError(
+                "La persistencia está temporalmente no disponible."
+            ) from error
+
+        raise
 
     return dict(row)
 
