@@ -3,6 +3,7 @@ import sqlite3
 import sys
 import tempfile
 import time
+from contextlib import closing
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -25,96 +26,126 @@ PAYLOAD = {
 
 
 def main() -> None:
-    with tempfile.TemporaryDirectory() as temp_dir:
-        database = Path(temp_dir) / "campusmarket-medicion.db"
-        os.environ["CAMPUSMARKET_DB_PATH"] = str(database)
+    previous_db_path = os.environ.get("CAMPUSMARKET_DB_PATH")
 
-        initialize_database()
+    try:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            database = Path(temp_dir) / "campusmarket-medicion.db"
+            os.environ["CAMPUSMARKET_DB_PATH"] = str(database)
 
-        client = TestClient(app)
+            initialize_database()
 
-        locker = sqlite3.connect(database)
-        locker.execute("BEGIN EXCLUSIVE")
+            with TestClient(app) as client:
+                locker = sqlite3.connect(database)
+                locker.execute("BEGIN EXCLUSIVE")
 
-        registros_antes = locker.execute(
-            "SELECT COUNT(*) FROM publicaciones"
-        ).fetchone()[0]
+                registros_antes = locker.execute(
+                    "SELECT COUNT(*) FROM publicaciones"
+                ).fetchone()[0]
 
-        inicio = time.perf_counter()
-        respuesta_bloqueada = client.post(
-            "/publicaciones",
-            json=PAYLOAD,
-        )
-        tiempo_bloqueo = time.perf_counter() - inicio
+                try:
+                    inicio = time.perf_counter()
 
-        registros_despues = locker.execute(
-            "SELECT COUNT(*) FROM publicaciones"
-        ).fetchone()[0]
+                    respuesta_bloqueada = client.post(
+                        "/publicaciones",
+                        json=PAYLOAD,
+                    )
 
-        print("=== MEDICION S5: SQLITE BLOQUEADA ===")
-        print(f"HTTP durante bloqueo: {respuesta_bloqueada.status_code}")
-        print(f"Tiempo durante bloqueo: {tiempo_bloqueo:.3f} s")
-        print(f"Registros antes: {registros_antes}")
-        print(f"Registros despues del intento: {registros_despues}")
-        print(
-            "Escritura parcial:",
-            "NO" if registros_despues == registros_antes else "SI",
-        )
-        print(
-            "Detalle:",
-            respuesta_bloqueada.json().get("detail"),
-        )
+                    tiempo_bloqueo = time.perf_counter() - inicio
 
-        locker.rollback()
-        locker.close()
+                    registros_despues = locker.execute(
+                        "SELECT COUNT(*) FROM publicaciones"
+                    ).fetchone()[0]
 
-        inicio_recuperacion = time.perf_counter()
-        respuesta_recuperacion = client.post(
-            "/publicaciones",
-            json=PAYLOAD,
-        )
-        tiempo_recuperacion = (
-            time.perf_counter() - inicio_recuperacion
-        )
+                    print("=== MEDICION S5: SQLITE BLOQUEADA ===")
+                    print(
+                        f"HTTP durante bloqueo: "
+                        f"{respuesta_bloqueada.status_code}"
+                    )
+                    print(
+                        f"Tiempo durante bloqueo: "
+                        f"{tiempo_bloqueo:.3f} s"
+                    )
+                    print(f"Registros antes: {registros_antes}")
+                    print(
+                        f"Registros despues del intento: "
+                        f"{registros_despues}"
+                    )
+                    print(
+                        "Escritura parcial:",
+                        (
+                            "NO"
+                            if registros_despues == registros_antes
+                            else "SI"
+                        ),
+                    )
+                    print(
+                        "Detalle:",
+                        respuesta_bloqueada.json().get("detail"),
+                    )
 
-        with sqlite3.connect(database) as connection:
-            registros_finales = connection.execute(
-                "SELECT COUNT(*) FROM publicaciones"
-            ).fetchone()[0]
+                finally:
+                    locker.rollback()
+                    locker.close()
 
-        print()
-        print("=== RECUPERACION DESPUES DE LIBERAR SQLITE ===")
-        print(
-            f"HTTP recuperacion: "
-            f"{respuesta_recuperacion.status_code}"
-        )
-        print(
-            f"Tiempo recuperacion: "
-            f"{tiempo_recuperacion:.3f} s"
-        )
-        print(f"Registros finales: {registros_finales}")
+                inicio_recuperacion = time.perf_counter()
 
-        print()
-        print("=== RESUMEN PARA EVIDENCIA ===")
-        print(
-            f"bloqueo_http="
-            f"{respuesta_bloqueada.status_code}"
-        )
-        print(f"bloqueo_segundos={tiempo_bloqueo:.3f}")
-        print(
-            "escritura_parcial="
-            f"{'no' if registros_despues == registros_antes else 'si'}"
-        )
-        print(
-            f"recuperacion_http="
-            f"{respuesta_recuperacion.status_code}"
-        )
-        print(
-            f"recuperacion_segundos="
-            f"{tiempo_recuperacion:.3f}"
-        )
+                respuesta_recuperacion = client.post(
+                    "/publicaciones",
+                    json=PAYLOAD,
+                )
 
-        os.environ.pop("CAMPUSMARKET_DB_PATH", None)
+                tiempo_recuperacion = (
+                    time.perf_counter() - inicio_recuperacion
+                )
+
+                with closing(sqlite3.connect(database)) as connection:
+                    registros_finales = connection.execute(
+                        "SELECT COUNT(*) FROM publicaciones"
+                    ).fetchone()[0]
+
+                print()
+                print(
+                    "=== RECUPERACION DESPUES DE LIBERAR SQLITE ==="
+                )
+                print(
+                    f"HTTP recuperacion: "
+                    f"{respuesta_recuperacion.status_code}"
+                )
+                print(
+                    f"Tiempo recuperacion: "
+                    f"{tiempo_recuperacion:.3f} s"
+                )
+                print(f"Registros finales: {registros_finales}")
+
+                print()
+                print("=== RESUMEN PARA EVIDENCIA ===")
+                print(
+                    f"bloqueo_http="
+                    f"{respuesta_bloqueada.status_code}"
+                )
+                print(
+                    f"bloqueo_segundos="
+                    f"{tiempo_bloqueo:.3f}"
+                )
+                print(
+                    "escritura_parcial="
+                    f"{'no' if registros_despues == registros_antes else 'si'}"
+                )
+                print(
+                    f"recuperacion_http="
+                    f"{respuesta_recuperacion.status_code}"
+                )
+                print(
+                    f"recuperacion_segundos="
+                    f"{tiempo_recuperacion:.3f}"
+                )
+
+    finally:
+        if previous_db_path is None:
+            os.environ.pop("CAMPUSMARKET_DB_PATH", None)
+        else:
+            os.environ["CAMPUSMARKET_DB_PATH"] = previous_db_path
 
 
 if __name__ == "__main__":
