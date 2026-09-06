@@ -1,45 +1,46 @@
 @startuml
 
 title CampusMarket - C4 Nivel 1 · Contexto
-caption Evidencia S4 · Equipo CampusMarket
+caption Primer corte · 06/09/2026 · Equipo CampusMarket
 
 left to right direction
+
 skinparam shadowing false
 skinparam actorStyle stickman
+skinparam defaultTextAlignment center
 
 actor "Estudiante" as estudiante
 actor "Administrador" as administrador
 
-rectangle "CampusMarket\nMarketplace universitario" as campusmarket
+rectangle "CampusMarket\n\nMarketplace universitario para\npublicar, consultar y buscar productos" as campusmarket
 
-estudiante --> campusmarket : Publica, consulta y busca productos\nNavegador web · HTTP local
-administrador --> campusmarket : Supervisa publicaciones y contenido\nNavegador web · HTTP local
+estudiante --> campusmarket : Publica, consulta y busca productos\n[Navegador web · HTTP local]
+
+administrador --> campusmarket : Supervisa publicaciones y contenido\n[Navegador web · HTTP local]
 
 legend right
 |= Elemento |= Significado |
-| Persona | Actor externo que interactúa con CampusMarket |
-| CampusMarket | Sistema bajo diseño |
-| Flecha | Interacción con propósito y tecnología |
+| Persona | Actor externo que utiliza CampusMarket |
+| Sistema | CampusMarket como sistema bajo diseño |
+| Flecha | Interacción indicando propósito y tecnología |
 endlegend
 
 note bottom of campusmarket
-ALCANCE DEL NIVEL 1
+**ALCANCE DEL NIVEL 1**
 
-CampusMarket centraliza la publicación,
-consulta y búsqueda de productos dentro
-de la comunidad universitaria.
+Este diagrama muestra únicamente:
+- actores externos;
+- CampusMarket como sistema;
+- propósito de las interacciones.
 
 Fuera del alcance actual:
-- pagos electrónicos
-- procesamiento bancario
-- envíos y logística
-- servicios externos de transporte
+- pagos electrónicos;
+- procesamiento bancario;
+- envíos y logística;
+- servicios externos de transporte.
 
 Durante el desarrollo local se utiliza HTTP.
-HTTPS corresponde a un despliegue externo futuro.
-
-Este nivel muestra únicamente los actores
-externos y el sistema CampusMarket.
+HTTPS queda previsto para un despliegue externo.
 
 Los contenedores y tecnologías internas
 se detallan en el C4 Nivel 2.
