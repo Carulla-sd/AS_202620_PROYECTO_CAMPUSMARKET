@@ -65,17 +65,17 @@ La evidencia se encuentra en:
 
 [`../evidencias/linea-base-bloqueo-sqlite-2026-09-05.md`](../evidencias/linea-base-bloqueo-sqlite-2026-09-05.md)
 
-La línea base demuestra que la implementación actual conserva la integridad
-de los datos y se recupera después de liberar SQLite, pero presenta dos
+La línea base demuestra que la implementación conservaba la integridad
+de los datos y se recuperaba después de liberar SQLite, pero presentaba dos
 problemas relevantes:
 
-1. devuelve HTTP `500`, tratando una indisponibilidad temporal de
+1. devolvía HTTP `500`, tratando una indisponibilidad temporal de
    persistencia como un error interno genérico;
-2. mantiene la solicitud esperando `7.323 s`, superando ampliamente el
+2. mantenía la solicitud esperando `7.323 s`, superando ampliamente el
    umbral de 2 segundos definido en EC-05.
 
-Por lo tanto, se necesita una decisión que mejore el comportamiento ante el
-bloqueo sin violar R-07.
+Por lo tanto, se necesitaba una decisión que mejorara el comportamiento ante
+el bloqueo sin violar R-07.
 
 ---
 
@@ -132,17 +132,17 @@ Consiste en mantener SQLite y establecer un tiempo máximo corto de espera
 para adquirir el bloqueo de persistencia.
 
 Si SQLite continúa bloqueada después de ese intervalo, el repositorio
-identificará la condición de indisponibilidad temporal y la aplicación la
-traducirá a una respuesta HTTP `503 Service Unavailable`.
+identifica la condición de indisponibilidad temporal y la aplicación la
+traduce a una respuesta HTTP `503 Service Unavailable`.
 
-Para esta etapa se utilizará un tiempo de espera de **0.5 segundos** para las
+Para esta etapa se utiliza un tiempo de espera de **0.5 segundos** para las
 conexiones SQLite involucradas en el corte vertical.
 
-No se incorporarán reintentos automáticos adicionales durante esta etapa.
+No se incorporan reintentos automáticos adicionales durante esta etapa.
 
 **Ventajas:**
 
-- permite cumplir holgadamente el umbral máximo de 2 segundos;
+- permite cumplir el umbral máximo de 2 segundos;
 - diferencia una indisponibilidad temporal de un error interno;
 - conserva SQLite;
 - conserva una única unidad de despliegue;
@@ -153,7 +153,7 @@ No se incorporarán reintentos automáticos adicionales durante esta etapa.
 
 **Desventajas y costos:**
 
-- una operación podría ser rechazada aunque el bloqueo fuese a liberarse
+- una operación puede ser rechazada aunque el bloqueo fuese a liberarse
   poco después de los 0.5 segundos;
 - el cliente deberá volver a intentar la operación posteriormente;
 - se agrega lógica explícita para clasificar la indisponibilidad temporal;
@@ -197,26 +197,26 @@ No se descarta como posible evolución futura de CampusMarket.
 
 ## 4. Decisión
 
-**CampusMarket adoptará la Alternativa B: espera acotada y degradación
+**CampusMarket adopta la Alternativa B: espera acotada y degradación
 controlada mediante HTTP `503`.**
 
-La implementación deberá:
+La implementación:
 
-1. mantener SQLite como persistencia;
-2. mantener una única unidad de despliegue;
-3. configurar un tiempo de espera SQLite de `0.5 s`;
-4. detectar específicamente la condición de base temporalmente bloqueada;
-5. evitar exponer directamente errores internos de SQLite al cliente;
-6. traducir la indisponibilidad temporal a HTTP `503 Service Unavailable`;
-7. devolver un mensaje comprensible para el cliente;
-8. conservar la ausencia de escrituras parciales;
-9. permitir la creación normal después de liberar la base;
-10. verificar el comportamiento mediante una prueba automatizada y una
+1. mantiene SQLite como persistencia;
+2. mantiene una única unidad de despliegue;
+3. configura un tiempo de espera SQLite de `0.5 s`;
+4. detecta específicamente la condición de base temporalmente bloqueada;
+5. evita exponer directamente errores internos de SQLite al cliente;
+6. traduce la indisponibilidad temporal a HTTP `503 Service Unavailable`;
+7. devuelve un mensaje comprensible para el cliente;
+8. conserva la ausencia de escrituras parciales;
+9. permite la creación normal después de liberar la base;
+10. verifica el comportamiento mediante una prueba automatizada y una
     medición reproducible.
 
-No se implementarán reintentos automáticos en esta decisión.
+No se implementaron reintentos automáticos en esta decisión.
 
-El cliente podrá volver a intentar posteriormente la operación cuando la
+El cliente puede volver a intentar posteriormente la operación cuando la
 persistencia vuelva a estar disponible.
 
 ---
@@ -227,13 +227,16 @@ La alternativa seleccionada proporciona el mejor equilibrio entre
 disponibilidad, simplicidad operativa, mantenibilidad y cumplimiento de la
 restricción R-07.
 
-La línea base demostró que CampusMarket ya conserva la integridad y se
-recupera una vez liberada SQLite. El principal problema no requiere sustituir
-el mecanismo de persistencia, sino controlar cuánto tiempo espera la
-aplicación y cómo comunica el fallo temporal.
+La línea base demostró que CampusMarket ya conservaba la integridad y se
+recuperaba una vez liberada SQLite. El principal problema no requería
+sustituir el mecanismo de persistencia, sino controlar cuánto tiempo esperaba
+la aplicación y cómo comunicaba el fallo temporal.
 
-Establecer una espera de `0.5 s` permite mantener un margen amplio frente al
-umbral máximo de 2 segundos de EC-05.
+Se configuró una espera SQLite de `0.5 s`, manteniendo margen frente al
+umbral máximo de 2 segundos establecido por EC-05.
+
+La medición posterior confirmó que la solicitud completa bajo bloqueo
+respondió en `1.283 s`, cumpliendo el umbral arquitectónico.
 
 La respuesta HTTP `503` representa explícitamente una indisponibilidad
 temporal del servicio necesario para completar la operación, en lugar de
@@ -256,10 +259,17 @@ Limitar cuánto tiempo la operación espera por la disponibilidad de SQLite.
 **Objetivo:** evitar una espera prolongada como los `7.323 s` observados en
 la línea base.
 
+**Resultado observado:** la solicitud completa durante el bloqueo respondió
+en `1.283 s`.
+
 ### Detección explícita de fallo temporal
 
 Distinguir el bloqueo temporal de SQLite de otros errores inesperados de
 persistencia.
+
+La detección se realiza específicamente sobre las condiciones
+`SQLITE_BUSY`, `SQLITE_LOCKED` y los mensajes asociados al bloqueo de la
+base.
 
 **Objetivo:** no convertir todos los errores de base de datos en HTTP `503`.
 
@@ -270,6 +280,10 @@ Traducir específicamente la indisponibilidad temporal a HTTP `503`.
 **Objetivo:** proporcionar al cliente una respuesta semánticamente adecuada
 y permitir un reintento posterior.
 
+El mensaje retornado durante la medición fue:
+
+`La persistencia está temporalmente no disponible. Intenta nuevamente.`
+
 ### Preservación de la transacción
 
 No confirmar escrituras cuando la operación no logra completarse.
@@ -277,12 +291,18 @@ No confirmar escrituras cuando la operación no logra completarse.
 **Objetivo:** conservar la propiedad ya observada en la línea base de cero
 escrituras parciales.
 
-### Recuperación automática después de liberar el recurso
+**Resultado observado:** los registros permanecieron en `0` antes y después
+del intento bloqueado.
+
+### Recuperación después de liberar el recurso
 
 No mantener un estado de fallo permanente dentro de la aplicación.
 
 **Objetivo:** permitir que una nueva solicitud funcione normalmente cuando
 SQLite deje de estar bloqueada.
+
+**Resultado observado:** después de liberar SQLite, la nueva creación
+respondió HTTP `201` en `0.006 s` y dejó `1` registro persistido.
 
 ---
 
@@ -290,18 +310,20 @@ SQLite deje de estar bloqueada.
 
 ### Consecuencias positivas
 
-- la solicitud bloqueada dejará de esperar varios segundos;
-- el cliente podrá distinguir una indisponibilidad temporal;
+- la solicitud bloqueada deja de esperar varios segundos;
+- el cliente puede distinguir una indisponibilidad temporal;
 - se conserva SQLite;
 - no se incorpora infraestructura adicional;
 - se mantiene una sola unidad de despliegue;
 - se conservan las fronteras del monolito modular;
 - el escenario adverso puede verificarse automáticamente;
-- se mantiene la posibilidad de sustituir SQLite posteriormente.
+- se mantiene la posibilidad de sustituir SQLite posteriormente;
+- la conexión SQLite se cierra explícitamente después de cada operación,
+  evitando mantener recursos abiertos innecesariamente.
 
 ### Consecuencias negativas
 
-- un bloqueo superior a 0.5 segundos provocará el rechazo temporal de la
+- un bloqueo superior al tiempo tolerado provoca el rechazo temporal de la
   operación;
 - el usuario puede necesitar volver a intentar la creación;
 - se introduce lógica adicional de manejo de errores;
@@ -360,82 +382,16 @@ antes de que exista evidencia que la justifique.
 
 ---
 
-## 10. Impacto esperado sobre la implementación
+## 10. Impacto sobre la implementación
 
-La decisión afectará principalmente el corte vertical de `publicaciones`.
+La decisión fue materializada principalmente dentro del corte vertical de
+`publicaciones`.
 
-Los cambios esperados se localizarán en:
+Los cambios se localizaron en:
 
 ```text
 backend/app/publicaciones/repository.py
+backend/app/publicaciones/service.py
 backend/app/publicaciones/router.py
-backend/tests/
-frontend/campusmarket/lib/publicaciones/
-```
-
-No se espera modificar las fronteras de:
-
-```text
-usuarios/
-catalogo/
-administracion/
-```
-
-La estructura general continuará siendo:
-
-```text
-Flutter Web
-    ↓
-FastAPI
-    ↓
-módulo publicaciones
-    ↓
-SQLite
-```
-
-No se agregará ningún nuevo servicio desplegable.
-
----
-
-## 11. Verificación de la decisión
-
-La decisión se considerará satisfecha cuando una prueba reproducible demuestre
-simultáneamente que:
-
-| Condición | Umbral esperado |
-|---|---:|
-| HTTP durante bloqueo | `503` |
-| Tiempo durante bloqueo | `≤ 2 s` |
-| Escritura parcial | `No` |
-| HTTP después de liberar SQLite | `201` |
-| Publicación posterior persistida | `Sí` |
-
-Los resultados posteriores deberán compararse explícitamente con la línea
-base:
-
-| Métrica | Antes | Después esperado |
-|---|---:|---:|
-| HTTP durante bloqueo | `500` | `503` |
-| Tiempo durante bloqueo | `7.323 s` | `≤ 2 s` |
-| Escritura parcial | `No` | `No` |
-| HTTP después de liberar SQLite | `201` | `201` |
-
-Los valores reales de la medición posterior se documentarán después de
-implementar y ejecutar la solución.
-
----
-
-## 12. Trazabilidad
-
-La cadena arquitectónica asociada con esta decisión es:
-
-**R-07 → EC-05 → ADR-0002 → módulo publicaciones → prueba de bloqueo SQLite → evidencia antes/después**
-
-Referencias:
-
-- [R-07 - Persistencia sin nueva infraestructura](../arc42/02-restricciones.md#r-07-persistencia-sin-nueva-infraestructura-durante-el-primer-corte)
-- [EC-05 - Degradación ante bloqueo temporal de persistencia](../arc42/10-escenarios-de-calidad.md#ec-05---degradación-ante-bloqueo-temporal-de-persistencia)
-- [Línea base previa al cambio](../evidencias/linea-base-bloqueo-sqlite-2026-09-05.md)
-
-La evidencia de implementación, la prueba automatizada y la medición posterior
-se enlazarán cuando la decisión sea materializada en código.
+backend/tests/test_publicaciones_vertical.py
+scripts/medir_bloqueo_sqlite.py
