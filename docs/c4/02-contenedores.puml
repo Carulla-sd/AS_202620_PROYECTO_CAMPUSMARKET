@@ -1,60 +1,80 @@
 @startuml
 
 title CampusMarket - C4 Nivel 2 · Contenedores
-caption Evidencia S4 · Equipo CampusMarket
+caption Primer corte · 06/09/2026 · Equipo CampusMarket
 
 left to right direction
+
 skinparam shadowing false
 skinparam actorStyle stickman
+skinparam defaultTextAlignment center
 
 actor "Estudiante" as estudiante
 actor "Administrador" as administrador
 
 package "CampusMarket" {
 
-  rectangle "Frontend Web\nFlutter / Dart\n\nInterfaz web de CampusMarket" as frontend
+    rectangle "Frontend Web\n\nFlutter / Dart\n\nInterfaz web para publicar,\nconsultar y gestionar productos" as frontend
 
-  rectangle "Backend API\nFastAPI / Python\n\nProcesa solicitudes y coordina\nla lógica de aplicación" as backend
+    rectangle "Backend API\n\nFastAPI / Python\n\nRecibe solicitudes, valida datos\ny coordina la lógica de aplicación" as backend
 
-  database "Persistencia local\nSQLite\n\nAlmacena las publicaciones\ndel corte vertical S4" as db
+    database "Persistencia local\n\nSQLite\n\nAlmacena y recupera los datos\ndel corte vertical" as sqlite
 }
 
-estudiante --> frontend : Publica, consulta y busca productos\nNavegador web
+estudiante --> frontend : Publica y consulta productos\n[Navegador web]
 
-administrador --> frontend : Accede al sistema para supervisión\nNavegador web
+administrador --> frontend : Accede para supervisar contenido\n[Navegador web]
 
-frontend --> backend : Envía y consulta información\nHTTP / JSON · REST
+frontend --> backend : Crea y consulta publicaciones\n[HTTP / JSON · REST]
 
-backend --> db : Guarda y recupera publicaciones\nSQL / sqlite3
+backend --> sqlite : Guarda y recupera publicaciones\n[SQL · sqlite3]
 
 legend right
 |= Elemento |= Significado |
 | Persona | Actor externo a CampusMarket |
-| Frontend Web | Contenedor de interfaz |
-| Backend API | Contenedor de aplicación |
-| Persistencia local | Contenedor de datos |
-| Flecha | Interacción con propósito y tecnología |
+| Frontend Web | Contenedor de interfaz · Flutter / Dart |
+| Backend API | Contenedor de aplicación · FastAPI / Python |
+| Persistencia local | Contenedor de datos · SQLite |
+| Flecha | Comunicación con propósito y tecnología |
 endlegend
 
 note bottom of backend
-ALCANCE DEL NIVEL 2
+**ALCANCE DEL NIVEL 2**
 
-Este nivel muestra únicamente:
-- contenedores principales;
-- responsabilidad general;
-- tecnología principal;
+Se muestran:
+- contenedores ejecutables;
+- responsabilidad principal;
+- tecnología utilizada;
 - comunicación entre contenedores.
 
 No se muestran:
 - módulos internos;
-- componentes;
-- clases;
 - routers;
-- servicios;
-- repositorios.
+- services;
+- repositories;
+- clases.
 
-Ese detalle corresponde al C4 Nivel 3
-y no forma parte de la Evidencia S4.
+Ese detalle corresponde al C4 Nivel 3.
+end note
+
+note right of sqlite
+**PRIMER CORTE · R-07 / ADR-0002**
+
+SQLite se mantiene como persistencia.
+
+La respuesta arquitectónica de S5
+no modifica la topología del sistema.
+
+No se agregaron:
+- bases de datos externas;
+- colas;
+- cachés distribuidas;
+- nuevos servicios desplegables.
+
+Ante un bloqueo temporal de SQLite,
+el Backend API responde de forma
+controlada con HTTP 503 y el frontend
+informa la indisponibilidad al usuario.
 end note
 
 @enduml

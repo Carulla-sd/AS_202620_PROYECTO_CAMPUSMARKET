@@ -338,18 +338,218 @@ resuelto el 04/09/2026:
 
 | Semana | Estado |
 |---|---|
-| S1 | Saneado |
-| S2 | Saneado |
-| S3 | Saneado |
-| S4 | Saneado; SonarQube Cloud oficial, ADR→commit y arranque con un comando verificados |
+| S1 | **Saneado** |
+| S2 | **Saneado** |
+| S3 | **Saneado** |
+| S4 | **Saneado**; SonarQube Cloud oficial, ADR→commit y arranque con un comando verificados |
 
-El saneamiento acumulado de las evidencias S1-S4 queda completado.
+El saneamiento acumulado de las evidencias **S1-S4 queda completado antes del
+primer corte**.
 
-Antes de consolidar el primer corte permanece pendiente obtener una
-**medición de línea base reproducible** y desarrollar la respuesta
-arquitectónica correspondiente a la restricción definida por el equipo
-para la Semana 5.
+Las correcciones fueron contrastadas con la retroalimentación recibida y con
+el estado real del repositorio. No se marcaron como resueltos elementos sin
+evidencia verificable.
 
-Este archivo documenta únicamente correcciones sobre las evidencias
-acumuladas S1-S4. El reto arquitectónico específico de la Semana 5 se
-documentará separadamente.
+### Aclaración sobre ASP-01 y ASP-02
+
+Los escenarios **EC-01 - Consulta de productos** y
+**EC-02 - Protección de publicaciones** fueron definidos durante S2 y
+actualmente son alcanzables desde sus respectivas filas en
+`docs/aspectos.md`.
+
+Sin embargo, todavía no forman parte del corte vertical implementado. Por
+esta razón, `docs/aspectos.md` indica explícitamente que ASP-01 y ASP-02 no
+cuentan aún con ADR, código, pruebas o evidencia específica que verifique
+completamente esos escenarios.
+
+El equipo decidió no completar esas columnas artificialmente con elementos
+que no demuestren EC-01 o EC-02. Su estado queda documentado de forma
+explícita para mantener una trazabilidad consistente con la implementación
+real del sistema.
+
+### Estado de los pendientes señalados antes del corte
+
+Los principales pendientes acumulados quedaron atendidos:
+
+- ✅ Dos tensiones entre atributos de calidad documentadas.
+- ✅ Tabla de ocho columnas de `docs/aspectos.md` organizada y navegable.
+- ✅ Estructura `docs/arc42/`, `docs/adr/` y `docs/c4/` consolidada.
+- ✅ Registro de IA actualizado con propuestas aceptadas, verificadas y
+  rechazadas.
+- ✅ Contribución distribuida entre los integrantes del equipo.
+- ✅ Objetivos de negocio e interesados corregidos en arc42.
+- ✅ Fronteras del monolito modular materializadas en backend y frontend.
+- ✅ Corte vertical Flutter → FastAPI → SQLite implementado y probado.
+- ✅ ADR-0001 enlazado con su primera materialización en código.
+- ✅ Arranque mediante un solo comando ejecutado y documentado con evidencia.
+- ✅ SonarQube Cloud oficial integrado y Quality Gate verificado.
+- ✅ Línea base reproducible obtenida antes del reto arquitectónico de S5.
+
+---
+
+## Estado del reto arquitectónico S5
+
+El reto específico de Semana 5 se documenta separadamente de las correcciones
+acumuladas S1-S4.
+
+La restricción definida para el reto es:
+
+**R-07 - Persistencia sin nueva infraestructura durante el primer corte.**
+
+Esta restricción mantiene SQLite como persistencia y conserva una única
+unidad de despliegue durante el primer corte, sin introducir bases de datos
+externas, colas, cachés distribuidas ni nuevos servicios desplegables.
+
+### Diagnóstico y línea base
+
+Antes de modificar la implementación se provocó de forma reproducible un
+bloqueo temporal de SQLite durante la creación de una publicación.
+
+La línea base registró:
+
+- HTTP durante bloqueo: `500`;
+- tiempo durante bloqueo: `7.323 s`;
+- escritura parcial: `No`;
+- recuperación después de liberar SQLite: HTTP `201`;
+- tiempo de recuperación: `0.007 s`.
+
+La medición permitió identificar que el sistema preservaba la integridad de
+los datos y recuperaba su operación normal, pero la respuesta durante el
+bloqueo no era controlada y superaba el umbral definido para el reto.
+
+La evidencia se encuentra en:
+
+`docs/evidencias/linea-base-bloqueo-sqlite-2026-09-05.md`
+
+### Escenario de calidad
+
+A partir del diagnóstico se formuló:
+
+**EC-05 - Degradación ante bloqueo temporal de persistencia.**
+
+El escenario establece que durante el bloqueo la solicitud debe:
+
+- responder con HTTP `503`;
+- finalizar en un máximo de `2 segundos`;
+- no producir una escritura parcial;
+- informar la indisponibilidad temporal;
+- recuperar la creación normal después de liberar SQLite.
+
+### Decisión arquitectónica
+
+La respuesta arquitectónica quedó registrada en:
+
+`docs/adr/0002-manejo-bloqueo-sqlite.md`
+
+ADR-0002 establece:
+
+- espera SQLite acotada a `0.5 s`;
+- detección específica de `SQLITE_BUSY` y `SQLITE_LOCKED`;
+- traducción controlada de la indisponibilidad;
+- respuesta HTTP `503 Service Unavailable`;
+- ausencia de reintentos automáticos;
+- preservación de la transacción;
+- cierre explícito de conexiones SQLite;
+- propagación del mensaje hasta la interfaz Flutter.
+
+La solución conserva las fronteras arquitectónicas existentes:
+
+**Flutter → FastAPI → módulo `publicaciones` → SQLite**
+
+y no introduce infraestructura adicional.
+
+### Implementación y prueba
+
+La respuesta fue materializada principalmente en:
+
+- `backend/app/publicaciones/repository.py`
+- `backend/app/publicaciones/service.py`
+- `backend/app/publicaciones/router.py`
+- `frontend/campusmarket/lib/publicaciones/publicaciones_api.dart`
+- `frontend/campusmarket/lib/publicaciones/publicacion_form_page.dart`
+
+La prueba automatizada correspondiente se encuentra en:
+
+`backend/tests/test_publicaciones_vertical.py`
+
+La verificación final del backend produjo:
+
+`3 passed`
+
+También se verificó el frontend mediante:
+
+`flutter analyze`
+
+con resultado:
+
+`No issues found!`
+
+### Medición posterior
+
+La medición formal realizada después de aplicar ADR-0002 obtuvo:
+
+- HTTP durante bloqueo: `503`;
+- tiempo durante bloqueo: `1.283 s`;
+- escritura parcial: `No`;
+- recuperación después de liberar SQLite: HTTP `201`;
+- tiempo de recuperación: `0.006 s`.
+
+El resultado cumple el umbral de EC-05 de responder durante el bloqueo en un
+máximo de **2 segundos**.
+
+Una ejecución posterior volvió a confirmar el comportamiento:
+
+- HTTP durante bloqueo: `503`;
+- tiempo durante bloqueo: `1.138 s`;
+- escritura parcial: `No`;
+- recuperación: HTTP `201`.
+
+La evidencia formal posterior al cambio se encuentra en:
+
+`docs/evidencias/medicion-bloqueo-sqlite-2026-09-06.md`
+
+### Trazabilidad del reto
+
+La cadena verificable de S5 queda documentada como:
+
+**ASP-06 → R-07 / EC-05 → C4 Nivel 2 → ADR-0002 → código → prueba automatizada → medición → evidencia**
+
+Los principales elementos navegables se encuentran en:
+
+- `docs/arc42/02-restricciones.md`
+- `docs/arc42/10-escenarios-de-calidad.md`
+- `docs/arc42/09-decisiones.md`
+- `docs/adr/0002-manejo-bloqueo-sqlite.md`
+- `docs/c4/02-contenedores.md`
+- `docs/aspectos.md`
+- `docs/ia.md`
+- `backend/tests/test_publicaciones_vertical.py`
+- `scripts/medir_bloqueo_sqlite.py`
+- `docs/evidencias/linea-base-bloqueo-sqlite-2026-09-05.md`
+- `docs/evidencias/medicion-bloqueo-sqlite-2026-09-06.md`
+
+---
+
+## Estado final antes del primer corte
+
+Las correcciones acumuladas de **S1, S2, S3 y S4 se encuentran saneadas y
+documentadas**.
+
+El reto arquitectónico de S5 cuenta con:
+
+- ✅ restricción arquitectónica identificada;
+- ✅ diagnóstico del impacto;
+- ✅ línea base reproducible;
+- ✅ escenario de calidad medible;
+- ✅ alternativas y decisión registradas mediante ADR-0002;
+- ✅ cambio aplicado sobre el corte vertical;
+- ✅ degradación controlada ante el bloqueo;
+- ✅ prueba automatizada;
+- ✅ medición posterior contrastada con el umbral;
+- ✅ recuperación verificada;
+- ✅ trazabilidad desde el aspecto hasta la evidencia;
+- ✅ registro de uso de IA actualizado.
+
+De esta manera, `correcciones.md` refleja tanto el saneamiento de la
+retroalimentación acumulada como el estado verificable del proyecto antes de
+consolidar el primer corte.

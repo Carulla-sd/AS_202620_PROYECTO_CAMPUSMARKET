@@ -59,12 +59,22 @@ class _PublicacionFormPageState extends State<PublicacionFormPage> {
       _tituloController.clear();
       _descripcionController.clear();
       _precioController.clear();
+    } on PublicacionTemporalmenteNoDisponible catch (error) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(error.mensaje),
+        ),
+      );
     } catch (_) {
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('No fue posible guardar la publicación.'),
+          content: Text(
+            'No fue posible guardar la publicación.',
+          ),
         ),
       );
     } finally {

@@ -1,9 +1,13 @@
 from typing import Literal
 
-from fastapi import APIRouter, status
+from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, Field
 
-from .service import crear_publicacion, listar_publicaciones
+from .service import (
+    PublicationPersistenceUnavailableError,
+    crear_publicacion,
+    listar_publicaciones,
+)
 
 
 router = APIRouter(prefix="/publicaciones", tags=["publicaciones"])
@@ -23,7 +27,13 @@ class Publicacion(PublicacionCreate):
 
 @router.post("", response_model=Publicacion, status_code=status.HTTP_201_CREATED)
 def crear(payload: PublicacionCreate):
-    return crear_publicacion(payload.model_dump())
+    try:
+        return crear_publicacion(payload.model_dump())
+    except PublicationPersistenceUnavailableError as error:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="La persistencia está temporalmente no disponible. Intenta nuevamente.",
+        ) from error
 
 
 @router.get("", response_model=list[Publicacion])

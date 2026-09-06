@@ -1,4 +1,12 @@
-from .repository import create_publication, list_publications
+from .repository import (
+    PersistenceUnavailableError,
+    create_publication,
+    list_publications,
+)
+
+
+class PublicationPersistenceUnavailableError(RuntimeError):
+    """No es posible guardar publicaciones temporalmente."""
 
 
 def crear_publicacion(data: dict) -> dict:
@@ -9,7 +17,13 @@ def crear_publicacion(data: dict) -> dict:
         "modalidad": data["modalidad"],
         "estado": data["estado"],
     }
-    return create_publication(normalized)
+
+    try:
+        return create_publication(normalized)
+    except PersistenceUnavailableError as error:
+        raise PublicationPersistenceUnavailableError(
+            "No es posible guardar la publicación temporalmente."
+        ) from error
 
 
 def listar_publicaciones() -> list[dict]:
