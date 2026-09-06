@@ -1,5 +1,6 @@
 import os
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 
 
@@ -50,7 +51,7 @@ def _is_database_locked(error: sqlite3.OperationalError) -> bool:
 
 
 def initialize_database() -> None:
-    with _connect() as connection:
+    with closing(_connect()) as connection, connection:
         connection.execute(
             """
             CREATE TABLE IF NOT EXISTS publicaciones (
@@ -77,7 +78,7 @@ def create_publication(data: dict) -> dict:
     try:
         initialize_database()
 
-        with _connect() as connection:
+        with closing(_connect()) as connection, connection:
             cursor = connection.execute(
                 """
                 INSERT INTO publicaciones (
@@ -129,7 +130,7 @@ def create_publication(data: dict) -> dict:
 def list_publications() -> list[dict]:
     initialize_database()
 
-    with _connect() as connection:
+    with closing(_connect()) as connection, connection:
         rows = connection.execute(
             """
             SELECT
