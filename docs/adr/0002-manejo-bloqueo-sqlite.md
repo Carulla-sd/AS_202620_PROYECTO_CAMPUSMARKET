@@ -384,14 +384,115 @@ antes de que exista evidencia que la justifique.
 
 ## 10. Impacto sobre la implementación
 
-La decisión fue materializada principalmente dentro del corte vertical de
-`publicaciones`.
+La decisión fue materializada sobre el corte vertical de `publicaciones`,
+manteniendo las fronteras arquitectónicas existentes y sin introducir nueva
+infraestructura.
 
-Los cambios se localizaron en:
+Los cambios principales se localizaron en:
 
 ```text
 backend/app/publicaciones/repository.py
 backend/app/publicaciones/service.py
 backend/app/publicaciones/router.py
+frontend/campusmarket/lib/publicaciones/publicaciones_api.dart
+frontend/campusmarket/lib/publicaciones/publicacion_form_page.dart
 backend/tests/test_publicaciones_vertical.py
 scripts/medir_bloqueo_sqlite.py
+```
+
+La responsabilidad de cada elemento dentro de la respuesta arquitectónica es:
+
+- `repository.py`: configura la espera SQLite de `0.5 s`, identifica
+  `SQLITE_BUSY` y `SQLITE_LOCKED`, preserva la transacción y traduce el
+  bloqueo a una indisponibilidad temporal de persistencia.
+- `service.py`: mantiene la traducción de la indisponibilidad dentro de la
+  frontera de la capacidad `publicaciones`.
+- `router.py`: expone la condición controlada mediante HTTP
+  `503 Service Unavailable`.
+- `publicaciones_api.dart`: identifica específicamente el HTTP `503` y
+  conserva el mensaje devuelto por el backend.
+- `publicacion_form_page.dart`: informa al usuario sobre la indisponibilidad
+  temporal sin confundirla con un error genérico.
+- `test_publicaciones_vertical.py`: verifica la respuesta `503`, el umbral
+  máximo de `2 s`, la ausencia de escritura parcial y la recuperación
+  posterior.
+- `medir_bloqueo_sqlite.py`: reproduce el escenario adverso y permite
+  contrastar el resultado con la línea base.
+
+La implementación conserva el recorrido:
+
+**Flutter Web → FastAPI → módulo `publicaciones` → SQLite**
+
+El cambio modifica el comportamiento ante una condición adversa de
+persistencia, pero no cambia la topología de contenedores ni divide el backend
+en nuevos servicios desplegables.
+
+---
+
+## 11. Verificación y resultados
+
+La línea base previa a la implementación registró:
+
+| Métrica | Línea base |
+|---|---:|
+| HTTP durante bloqueo | `500` |
+| Tiempo durante bloqueo | `7.323 s` |
+| Escritura parcial | `No` |
+| HTTP después de liberar SQLite | `201` |
+| Tiempo de recuperación | `0.007 s` |
+
+Después de aplicar ADR-0002, la medición formal obtuvo:
+
+| Métrica | Resultado |
+|---|---:|
+| HTTP durante bloqueo | `503` |
+| Tiempo durante bloqueo | `1.283 s` |
+| Escritura parcial | `No` |
+| HTTP después de liberar SQLite | `201` |
+| Tiempo de recuperación | `0.006 s` |
+
+El resultado cumple EC-05 porque:
+
+- la indisponibilidad se comunica mediante HTTP `503`;
+- `1.283 s` se encuentra por debajo del umbral de `2 s`;
+- no se produce una escritura parcial;
+- la creación normal se recupera después de liberar SQLite.
+
+Una ejecución posterior volvió a comprobar el comportamiento con HTTP `503`
+en `1.138 s` y recuperación HTTP `201`.
+
+Las evidencias reproducibles son:
+
+- [Línea base](../evidencias/linea-base-bloqueo-sqlite-2026-09-05.md)
+- [Medición posterior](../evidencias/medicion-bloqueo-sqlite-2026-09-06.md)
+- [Prueba automatizada](../../backend/tests/test_publicaciones_vertical.py)
+- [Script de medición](../../scripts/medir_bloqueo_sqlite.py)
+
+---
+
+## 12. Trazabilidad de implementación
+
+La decisión fue consolidada en el repositorio mediante:
+
+- Pull Request:
+  [#28 - Completar reto arquitectónico S5 del primer corte](https://github.com/ISCOUTB/AS_202620_PROYECTO_CAMPUSMARKET/pull/28)
+- Commit de integración:
+  [`ff68cf2`](https://github.com/ISCOUTB/AS_202620_PROYECTO_CAMPUSMARKET/commit/ff68cf255b90340634e0760f056870f9a19e9abd)
+
+El PR #28 reúne la implementación, las pruebas, las mediciones y la
+documentación utilizadas para verificar ADR-0002 en `master`.
+
+La cadena de trazabilidad principal es:
+
+**ASP-06 → R-07 / EC-05 → C4 Nivel 2 → ADR-0002 → código → prueba → medición → evidencia**
+
+Elementos relacionados:
+
+- [R-07](../arc42/02-restricciones.md#r-07-persistencia-sin-nueva-infraestructura-durante-el-primer-corte)
+- [EC-05](../arc42/10-escenarios-de-calidad.md#ec-05---degradación-ante-bloqueo-temporal-de-persistencia)
+- [C4 Nivel 2](../c4/02-contenedores.md)
+- [ASP-06](../aspectos.md)
+- [Registro de IA](../ia.md)
+
+Con estas evidencias, ADR-0002 queda asociado tanto con la decisión
+arquitectónica como con su materialización verificable en el repositorio.

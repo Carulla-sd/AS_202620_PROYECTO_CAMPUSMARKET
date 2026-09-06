@@ -26,15 +26,19 @@ organizada mediante módulos asociados con capacidades del negocio:
 
 La incorporación del esqueleto ejecutable fue consolidada mediante:
 
-- Pull Request: [#5 - Completar esqueleto ejecutable de Evidencia S3](https://github.com/ISCOUTB/AS_202620_PROYECTO_CAMPUSMARKET/pull/5)
-- Commit de integración: [`4dd857a`](https://github.com/ISCOUTB/AS_202620_PROYECTO_CAMPUSMARKET/commit/4dd857a1e238e50956facd7156b967f03ae30db0)
+- Pull Request:
+  [#5 - Completar esqueleto ejecutable de Evidencia S3](https://github.com/ISCOUTB/AS_202620_PROYECTO_CAMPUSMARKET/pull/5)
+- Commit de integración:
+  [`4dd857a`](https://github.com/ISCOUTB/AS_202620_PROYECTO_CAMPUSMARKET/commit/4dd857a1e238e50956facd7156b967f03ae30db0)
 
 Este commit constituye la evidencia trazable de la primera materialización
 de la decisión arquitectónica adoptada en ADR-0001.
 
 La implementación de S4 y S5 conserva posteriormente las mismas fronteras.
+
 El corte vertical continúa implementándose dentro del módulo
-`publicaciones` y no convierte los módulos en servicios distribuidos.
+`publicaciones` y no convierte los módulos internos en servicios
+distribuidos independientes.
 
 ---
 
@@ -44,11 +48,17 @@ ADR-0002 responde a la restricción:
 
 **R-07 - Persistencia sin nueva infraestructura durante el primer corte.**
 
-La condición adversa se formalizó mediante:
+La condición adversa seleccionada se formalizó mediante:
 
 **EC-05 - Degradación ante bloqueo temporal de persistencia.**
 
-La línea base previa mostró:
+El reto consiste en responder de forma controlada cuando SQLite se encuentra
+temporalmente bloqueada durante la creación de una publicación, sin resolver
+el problema mediante nueva infraestructura.
+
+### Línea base previa
+
+Antes de aplicar ADR-0002 se realizó una medición reproducible.
 
 | Métrica | Línea base |
 |---|---:|
@@ -56,20 +66,49 @@ La línea base previa mostró:
 | Tiempo durante bloqueo | `7.323 s` |
 | Escritura parcial | `No` |
 | HTTP de recuperación | `201` |
+| Tiempo de recuperación | `0.007 s` |
 
-La decisión se materializó manteniendo SQLite y la única unidad de
-despliegue existente.
+La línea base mostró que CampusMarket preservaba la integridad de los datos y
+recuperaba la operación normal después de liberar SQLite.
+
+Sin embargo:
+
+- la indisponibilidad temporal se manifestaba como HTTP `500`;
+- la solicitud permanecía bloqueada durante `7.323 s`;
+- el resultado superaba el umbral máximo de `2 s` definido en EC-05.
+
+---
+
+## Decisión aplicada
+
+La decisión se materializó manteniendo SQLite y conservando el backend como
+una única aplicación monolítica modular, sin crear nuevos servicios
+desplegables.
 
 Los principales cambios fueron:
 
 - timeout SQLite acotado a `0.5 s`;
 - detección específica de `SQLITE_BUSY` y `SQLITE_LOCKED`;
-- traducción de la indisponibilidad temporal dentro del módulo;
+- traducción controlada de la indisponibilidad temporal;
 - respuesta HTTP `503 Service Unavailable`;
 - mensaje explícito de indisponibilidad temporal para el cliente;
+- ausencia de reintentos automáticos;
 - preservación de la transacción;
 - cierre explícito de conexiones SQLite;
+- propagación de la condición controlada hasta Flutter;
 - recuperación normal después de liberar el bloqueo.
+
+La solución conserva el recorrido arquitectónico:
+
+**Flutter Web → FastAPI → módulo `publicaciones` → SQLite**
+
+Por lo tanto, ADR-0002 modifica el comportamiento frente a una condición
+adversa, pero no cambia la topología del sistema ni introduce nueva
+infraestructura.
+
+---
+
+## Correspondencia con la implementación
 
 Los archivos principales afectados son:
 
