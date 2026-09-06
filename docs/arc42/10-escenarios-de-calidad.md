@@ -181,6 +181,9 @@ HTTP `201` y persistir correctamente la publicación.
 **Restricción relacionada:**  
 [R-07 - Persistencia sin nueva infraestructura durante el primer corte](02-restricciones.md#r-07-persistencia-sin-nueva-infraestructura-durante-el-primer-corte)
 
+**Decisión arquitectónica relacionada:**  
+[ADR-0002 - Manejo de bloqueo temporal de SQLite](../adr/0002-manejo-bloqueo-sqlite.md)
+
 ### Línea base previa al cambio
 
 La medición realizada el 05/09/2026 antes de modificar la implementación
@@ -194,13 +197,77 @@ obtuvo los siguientes resultados:
 | HTTP después de liberar SQLite | `201` |
 | Tiempo de recuperación | `0.007 s` |
 
-La línea base muestra que la implementación actual preserva la integridad de
-los datos y recupera la operación normal al liberar SQLite, pero no cumple el
-comportamiento controlado definido para EC-05: durante el bloqueo responde con
-HTTP `500` y tarda `7.323 s`, superando el umbral objetivo de 2 segundos.
+La línea base mostró que la implementación preservaba la integridad de los
+datos y recuperaba la operación normal después de liberar SQLite.
 
-**Evidencia reproducible:**  
-[`../evidencias/linea-base-bloqueo-sqlite-2026-09-05.md`](../evidencias/linea-base-bloqueo-sqlite-2026-09-05.md)
+Sin embargo, no cumplía el comportamiento controlado definido para EC-05,
+porque durante el bloqueo respondía con HTTP `500` y tardaba `7.323 s`,
+superando el umbral máximo de 2 segundos.
 
-La decisión arquitectónica adoptada para responder a este escenario se
-registrará en ADR-0002.
+**Evidencia de línea base:**  
+[Medición antes del cambio](../evidencias/linea-base-bloqueo-sqlite-2026-09-05.md)
+
+### Respuesta arquitectónica aplicada
+
+Para responder al escenario se adoptó ADR-0002.
+
+La decisión mantiene SQLite y una única unidad de despliegue, de acuerdo con
+R-07, y aplica los siguientes mecanismos:
+
+- espera SQLite acotada mediante timeout de `0.5 s`;
+- detección específica de condiciones `SQLITE_BUSY` y `SQLITE_LOCKED`;
+- traducción controlada de la indisponibilidad dentro del módulo
+  `publicaciones`;
+- respuesta HTTP `503 Service Unavailable`;
+- ausencia de reintentos automáticos;
+- preservación de la transacción para evitar escrituras parciales;
+- cierre explícito de conexiones SQLite;
+- propagación del mensaje de indisponibilidad hasta la interfaz Flutter;
+- recuperación normal después de liberar la base de datos.
+
+La implementación conserva las fronteras arquitectónicas existentes:
+
+**Frontend Flutter → Backend FastAPI → Persistencia SQLite**
+
+No se agregaron bases de datos externas, colas, cachés distribuidas ni nuevos
+servicios desplegables.
+
+### Resultado después del cambio
+
+La medición formal realizada el 06/09/2026 produjo:
+
+| Métrica | Línea base | Después del cambio | Umbral |
+|---|---:|---:|---:|
+| HTTP durante bloqueo | `500` | `503` | `503` |
+| Tiempo durante bloqueo | `7.323 s` | `1.283 s` | `≤ 2 s` |
+| Escritura parcial | `No` | `No` | `No` |
+| HTTP después de liberar SQLite | `201` | `201` | `201` |
+| Tiempo de recuperación | `0.007 s` | `0.006 s` | Informativo |
+
+El resultado posterior cumple EC-05:
+
+- la solicitud durante el bloqueo finaliza con HTTP `503`;
+- el tiempo de respuesta es inferior al umbral de 2 segundos;
+- no se produce una escritura parcial;
+- después de liberar SQLite, una nueva creación responde con HTTP `201`;
+- la operación normal se recupera sin intervención adicional.
+
+Una ejecución posterior de verificación volvió a confirmar el comportamiento
+con los siguientes resultados:
+
+- HTTP durante bloqueo: `503`;
+- tiempo durante bloqueo: `1.138 s`;
+- escritura parcial: `No`;
+- HTTP después de liberar SQLite: `201`;
+- tiempo de recuperación: `0.007 s`.
+
+### Verificación automatizada
+
+La prueba correspondiente se encuentra en:
+
+[`backend/tests/test_publicaciones_vertical.py`](../../backend/tests/test_publicaciones_vertical.py)
+
+La ejecución final del backend produjo:
+
+```text
+3 passed, 1 warning in 1.51s
